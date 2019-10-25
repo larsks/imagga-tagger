@@ -40,6 +40,8 @@ schema_photo_tag = '''create table if not exists photo_tag (
 
 
 class FrequencyLock:
+    '''Used to rate limit API requests against the Imagga service'''
+
     def __init__(self, interval):
         self._lock = asyncio.Lock()
         self._interval = interval
@@ -73,14 +75,14 @@ class Tagger:
         self.dbpath = database
         self.tasks = tasks
 
-        self.init_db()
+        self.__init_db()
 
-    def init_db(self):
+    def __init_db(self):
         self.db = sqlite3.connect(self.dbpath)
         self.curs = self.db.cursor()
-        self.create_tables()
+        self.__create_tables()
 
-    def create_tables(self):
+    def __create_tables(self):
         for schema in [schema_photos, schema_tags, schema_photo_tag]:
             self.curs.execute(schema)
 
@@ -90,6 +92,8 @@ class Tagger:
         return True if res.fetchone() else False
 
     async def find_images(self):
+        '''Generate a list of image filenames'''
+
         for root, dirs, files in os.walk(self.topdir):
             for item in files:
                 imgpath = Path(root) / item
@@ -112,6 +116,8 @@ class Tagger:
                 yield imgpath
 
     async def tag(self, image):
+        '''Send an image to Imagga for categorization'''
+
         LOG.debug('starting tag task for %s', image)
         with aiohttp.MultipartWriter('form-data') as root:
             with image.open('rb') as fd:
@@ -128,6 +134,8 @@ class Tagger:
         return (image, data)
 
     def store(self, job):
+        '''Store information about an image to the database'''
+
         image, data = job
 
         if 'tags' not in data.get('result', {}):
