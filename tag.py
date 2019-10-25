@@ -18,12 +18,38 @@ PIL_logger = logging.getLogger('PIL')
 PIL_logger.setLevel('WARNING')
 
 
+schema_photos = '''create table if not exists photos (
+    id integer primary key,
+    path text,
+
+    constraint path_unique unique (path)
+);'''
+
+schema_tags = '''create table if not exists tags (
+    id integer primary key,
+    tag_name varchar(40),
+
+    constraint tag_name_unique unique (tag_name)
+);'''
+
+schema_photo_tag = '''create table if not exists photo_tag (
+    photo_id integer references photos(id),
+    tag_id integer references tags(id),
+    confidence float
+);'''
+
+
 class Tagger:
     def __init__(self, topdir=None, auth=None, database=None):
         self.topdir = topdir
         self.auth = auth
         self.db = sqlite3.connect(database)
         self.curs = self.db.cursor()
+        self.create_tables()
+
+    def create_tables(self):
+        for schema in [schema_photos, schema_tags, schema_photo_tag]:
+            self.curs.execute(schema)
 
     def image_is_in_database(self, image):
         res = self.curs.execute('select 1 from photos where path = ?',
