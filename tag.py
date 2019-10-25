@@ -53,7 +53,8 @@ class FrequencyLock:
         self._task = asyncio.Task.current_task()
         while not self._shutdown:
             await asyncio.sleep(self._interval)
-            self._lock.release()
+            if self._lock.locked():
+                self._lock.release()
 
     async def stop(self):
         self._shutdown = True
