@@ -208,9 +208,7 @@ def main(loglevel, api_key, api_secret, credentials, database, limit,
         limit=limit,
         tasks=tasks)
 
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(tagger.run())
-    loop.close()
+    asyncio.run(tagger.run())
 
 
 if __name__ == '__main__':
