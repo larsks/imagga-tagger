@@ -40,10 +40,19 @@ schema_photo_tag = '''create table if not exists photo_tag (
 
 
 class Tagger:
-    def __init__(self, topdir=None, auth=None, database=None):
+    def __init__(self, topdir=None, auth=None, database=None,
+                 limit=None, spaceout=None, tasks=1):
         self.topdir = topdir
         self.auth = auth
-        self.db = sqlite3.connect(database)
+        self.limit = limit
+        self.spaceout = spaceout
+        self.dbpath = database
+        self.tasks = tasks
+
+        self.init_db()
+
+    def init_db(self):
+        self.db = sqlite3.connect(self.dbpath)
         self.curs = self.db.cursor()
         self.create_tables()
 
@@ -118,18 +127,20 @@ class Tagger:
         self.db.commit()
         return image
 
-    async def run(self, limit=None):
+    async def run(self):
         self.session = aiohttp.ClientSession(auth=self.auth)
 
         pl = stream.iterate(self.find_images())
 
-        if limit:
-            pl = pl | pipe.take(limit)
+        if self.limit:
+            pl = pl | pipe.take(self.limit)
+
+        if self.spaceout:
+            pl = pl | pipe.spaceout(self.spaceout)
 
         pl = (
             pl |
-            pipe.spaceout(1) |
-            pipe.map(self.tag, task_limit=1) |
+            pipe.map(self.tag, task_limit=self.tasks) |
             pipe.map(self.store)
         )
 
@@ -144,10 +155,13 @@ class Tagger:
 @click.option('--api-key')
 @click.option('--api-secret')
 @click.option('-l', '--limit', type=int)
+@click.option('-s', '--spaceout', type=int, default=1)
 @click.option('-c', '--credentials', type=click.File())
 @click.option('-d', '--database', default='photos.sqlite')
+@click.option('-t', '--tasks', default=1, type=int)
 @click.argument('topdir')
-def main(loglevel, api_key, api_secret, credentials, database, limit, topdir):
+def main(loglevel, api_key, api_secret, credentials, database, limit,
+         spaceout, tasks, topdir):
     loglevel = ['WARNING', 'INFO', 'DEBUG'][min(loglevel, 2)]
     logging.basicConfig(level=loglevel)
 
@@ -163,10 +177,13 @@ def main(loglevel, api_key, api_secret, credentials, database, limit, topdir):
     tagger = Tagger(
         topdir=topdir,
         auth=auth,
-        database=database)
+        database=database,
+        spaceout=spaceout,
+        limit=limit,
+        tasks=tasks)
 
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(tagger.run(limit=limit))
+    loop.run_until_complete(tagger.run())
     loop.close()
 
 
