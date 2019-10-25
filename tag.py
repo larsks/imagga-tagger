@@ -39,13 +39,36 @@ schema_photo_tag = '''create table if not exists photo_tag (
 );'''
 
 
+class FrequencyLock:
+    def __init__(self, interval):
+        self._lock = asyncio.Lock()
+        self._interval = interval
+        self._shutdown = False
+        self._task = None
+
+    async def acquire(self):
+        await self._lock.acquire()
+
+    async def run(self):
+        self._task = asyncio.Task.current_task()
+        while not self._shutdown:
+            await asyncio.sleep(self._interval)
+            self._lock.release()
+
+    async def stop(self):
+        self._shutdown = True
+        if self._task:
+            await self._task
+            self._task = None
+
+
 class Tagger:
     def __init__(self, topdir=None, auth=None, database=None,
-                 limit=None, spaceout=None, tasks=1):
+                 limit=None, interval=None, tasks=1):
         self.topdir = topdir
         self.auth = auth
         self.limit = limit
-        self.spaceout = spaceout
+        self.interval = interval
         self.dbpath = database
         self.tasks = tasks
 
@@ -88,12 +111,14 @@ class Tagger:
                 yield imgpath
 
     async def tag(self, image):
-        LOG.info('fetching data for %s', image)
+        LOG.debug('starting tag task for %s', image)
         with aiohttp.MultipartWriter('form-data') as root:
             with image.open('rb') as fd:
                 part = root.append(fd)
                 part.set_content_disposition('form-data', name='image')
 
+                await self.limiter.acquire()
+                LOG.info('fetching data for %s', image)
                 async with self.session.post(
                         'https://api.imagga.com/v2/tags', data=root) as res:
                     data = await res.json()
@@ -129,14 +154,13 @@ class Tagger:
 
     async def run(self):
         self.session = aiohttp.ClientSession(auth=self.auth)
+        self.limiter = FrequencyLock(self.interval)
+        asyncio.create_task(self.limiter.run())
 
         pl = stream.iterate(self.find_images())
 
         if self.limit:
             pl = pl | pipe.take(self.limit)
-
-        if self.spaceout:
-            pl = pl | pipe.spaceout(self.spaceout)
 
         pl = (
             pl |
@@ -147,6 +171,7 @@ class Tagger:
         try:
             await pl
         finally:
+            await self.limiter.stop()
             await self.session.close()
 
 
@@ -155,13 +180,13 @@ class Tagger:
 @click.option('--api-key')
 @click.option('--api-secret')
 @click.option('-l', '--limit', type=int)
-@click.option('-s', '--spaceout', type=int, default=1)
+@click.option('-i', '--interval', type=int, default=1)
 @click.option('-c', '--credentials', type=click.File())
 @click.option('-d', '--database', default='photos.sqlite')
-@click.option('-t', '--tasks', default=1, type=int)
+@click.option('-t', '--tasks', type=int)
 @click.argument('topdir')
 def main(loglevel, api_key, api_secret, credentials, database, limit,
-         spaceout, tasks, topdir):
+         interval, tasks, topdir):
     loglevel = ['WARNING', 'INFO', 'DEBUG'][min(loglevel, 2)]
     logging.basicConfig(level=loglevel)
 
@@ -178,7 +203,7 @@ def main(loglevel, api_key, api_secret, credentials, database, limit,
         topdir=topdir,
         auth=auth,
         database=database,
-        spaceout=spaceout,
+        interval=interval,
         limit=limit,
         tasks=tasks)
 
