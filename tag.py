@@ -122,6 +122,7 @@ class Tagger:
                 LOG.info('fetching data for %s', image)
                 async with self.session.post(
                         'https://api.imagga.com/v2/tags', data=root) as res:
+                    res.raise_for_status()
                     data = await res.json()
 
         return (image, data)
@@ -171,6 +172,10 @@ class Tagger:
 
         try:
             await pl
+        except aiohttp.ClientResponseError as err:
+            raise click.ClickException(
+                'Imagga API failure ({.status}): probably exceeded '
+                'concurrency limits'.format(err))
         finally:
             await self.limiter.stop()
             await self.session.close()
