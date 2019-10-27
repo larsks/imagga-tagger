@@ -10,6 +10,7 @@ aiostream = "*"
 click = "*"
 pillow = "*"
 aiohttp = "*"
+tabulate = "*"
 
 [requires]
 python_version = "3.7"
